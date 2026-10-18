@@ -1,0 +1,100 @@
+name: Crea installer Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            arch: x64
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+
+    env:
+      PYTHONUTF8: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Installa strumenti
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target ${{ matrix.target }}
+          if ($LASTEXITCODE -ne 0) { throw "Installazione Rust fallita" }
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "Installazione WiX fallita" }
+
+      - name: Verifica progetto
+        run: python scripts/verify.py
+
+      - name: Compila installer
+        run: python scripts/build.py --target ${{ matrix.target }}
+
+      - name: Verifica documenti
+        run: python scripts/smoke.py --target ${{ matrix.target }}
+
+      - name: Verifica installazione e disinstallazione
+        shell: pwsh
+        run: |
+          $msiPath = (Get-ChildItem dist/*.msi | Select-Object -First 1).FullName
+          $installLog = Join-Path $env:RUNNER_TEMP "ciccio-install.log"
+          $installArgs = "/i `"$msiPath`" /qn /norestart /L*v `"$installLog`""
+          $p = Start-Process msiexec.exe -ArgumentList $installArgs -Wait -PassThru
+          if ($p.ExitCode -notin @(0,3010)) {
+            Get-Content $installLog -Tail 100
+            throw "Installazione fallita: $($p.ExitCode)"
+          }
+
+          $suiteDir = Join-Path $env:ProgramFiles "CiccioOffice"
+          foreach ($app in @("cicciowrite","cicciocalc","ciccioslides")) {
+            if (!(Test-Path "$suiteDir/$app.exe")) {
+              throw "App mancante: $app"
+            }
+          }
+
+          python scripts/smoke.py --installed-bin-dir "$suiteDir"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Test delle app installate fallito"
+          }
+
+          $uninstallLog = Join-Path $env:RUNNER_TEMP "ciccio-uninstall.log"
+          $uninstallArgs = "/x `"$msiPath`" /qn /norestart /L*v `"$uninstallLog`""
+          $p = Start-Process msiexec.exe -ArgumentList $uninstallArgs -Wait -PassThru
+          if ($p.ExitCode -notin @(0,3010)) {
+            Get-Content $uninstallLog -Tail 100
+            throw "Disinstallazione fallita: $($p.ExitCode)"
+          }
+
+          foreach ($app in @("cicciowrite","cicciocalc","ciccioslides")) {
+            if (Test-Path "$suiteDir/$app.exe") {
+              throw "App rimasta dopo la disinstallazione: $app"
+            }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CiccioOffice-Windows-${{ matrix.arch }}
+          path: |
+            dist/*.msi
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
