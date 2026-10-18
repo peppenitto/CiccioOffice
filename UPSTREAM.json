@@ -1,0 +1,17 @@
+[
+  {
+    "app": "CiccioWrite",
+    "upstream": "https://github.com/storytold/wordcraft",
+    "commit": "4a251d4b9c724a5bd3dd75f7c91c6aae77c6650e"
+  },
+  {
+    "app": "CiccioCalc",
+    "upstream": "https://github.com/storytold/gridcraft",
+    "commit": "c30fa3f1cf324603f3bfc0171689b1d4083b40e5"
+  },
+  {
+    "app": "CiccioSlides",
+    "upstream": "https://github.com/storytold/deckcraft",
+    "commit": "22db9261f9d1a214c296fd390173130c45d76d66"
+  }
+]
